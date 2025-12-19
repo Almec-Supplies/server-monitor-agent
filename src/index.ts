@@ -2,6 +2,7 @@ import dotenv from 'dotenv';
 import { MetricsCollector } from './collectors/metrics';
 import { ProcessCollector } from './collectors/processes';
 import { SecurityCollector } from './collectors/security';
+import { SitesCollector } from './collectors/sites';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
@@ -30,13 +31,16 @@ class MonitoringAgent {
   private metricsCollector: MetricsCollector;
   private processCollector: ProcessCollector;
   private securityCollector: SecurityCollector;
+  private sitesCollector: SitesCollector;
   private intervalId?: NodeJS.Timeout;
   private securityIntervalId?: NodeJS.Timeout;
+  private sitesIntervalId?: NodeJS.Timeout;
 
   constructor() {
     this.metricsCollector = new MetricsCollector();
     this.processCollector = new ProcessCollector({ processes: MONITORED_PROCESSES });
     this.securityCollector = new SecurityCollector();
+    this.sitesCollector = new SitesCollector();
   }
 
   async sendMetrics() {
@@ -142,6 +146,36 @@ class MonitoringAgent {
     }
   }
 
+  async sendSites() {
+    try {
+      console.log('🌐 Collecting sites...');
+      const sites = await this.sitesCollector.collectAll();
+
+      console.log(`   Found ${sites.length} site(s)`);
+      sites.forEach(site => {
+        const status = site.isReachable ? '✅' : '❌';
+        const ssl = site.isSsl ? `🔒 (${site.sslDaysRemaining}d)` : '';
+        console.log(`   ${status} ${site.domain} ${ssl}`);
+      });
+
+      const response = await fetch(`${API_URL}/api/sites`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-API-Key': API_KEY,
+        },
+        body: JSON.stringify({ sites }),
+      });
+
+      if (!response.ok) {
+        const error = await response.text();
+        console.error(`❌ Failed to send sites: ${response.status} - ${error}`);
+      }
+    } catch (error) {
+      console.error('❌ Error sending sites:', error);
+    }
+  }
+
   async performUpdate() {
     try {
       console.log('🔄 Starting update process...');
@@ -178,6 +212,7 @@ class MonitoringAgent {
     this.sendMetrics();
     this.sendProcesses();
     this.sendSecurityAudits();
+    this.sendSites();
 
     // Send metrics and processes at regular intervals
     this.intervalId = setInterval(() => {
@@ -189,6 +224,11 @@ class MonitoringAgent {
     this.securityIntervalId = setInterval(() => {
       this.sendSecurityAudits();
     }, 5 * 60 * 1000);
+
+    // Sites check every 5 minutes
+    this.sitesIntervalId = setInterval(() => {
+      this.sendSites();
+    }, 5 * 60 * 1000);
   }
 
   stop() {
@@ -197,6 +237,9 @@ class MonitoringAgent {
     }
     if (this.securityIntervalId) {
       clearInterval(this.securityIntervalId);
+    }
+    if (this.sitesIntervalId) {
+      clearInterval(this.sitesIntervalId);
     }
     console.log('🛑 Monitoring Agent stopped');
   }

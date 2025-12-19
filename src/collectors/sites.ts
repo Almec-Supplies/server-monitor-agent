@@ -1,0 +1,265 @@
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as https from 'https';
+import * as http from 'http';
+import * as tls from 'tls';
+import * as fs from 'fs/promises';
+
+const execAsync = promisify(exec);
+
+export interface Site {
+  domain: string;
+  configPath: string;
+  isEnabled: boolean;
+  port: number;
+  isSsl: boolean;
+  sslCertPath?: string;
+  sslCertExpiry?: Date;
+  sslDaysRemaining?: number;
+  isReachable: boolean;
+  httpStatusCode?: number;
+  responseTimeMs?: number;
+}
+
+export class SitesCollector {
+  async collectAll(): Promise<Site[]> {
+    const sites: Site[] = [];
+
+    try {
+      // Find nginx sites
+      const nginxSites = await this.getNginxSites();
+      
+      // Remove duplicates (same domain, keep SSL version)
+      const uniqueSites = new Map<string, typeof nginxSites[0]>();
+      for (const site of nginxSites) {
+        const existing = uniqueSites.get(site.domain);
+        if (!existing || (site.isSsl && !existing.isSsl)) {
+          uniqueSites.set(site.domain, site);
+        }
+      }
+      
+      // Check each unique site
+      for (const site of uniqueSites.values()) {
+        const siteInfo = await this.checkSite(site);
+        sites.push(siteInfo);
+      }
+    } catch (error) {
+      console.error('Error collecting sites:', error);
+    }
+
+    return sites;
+  }
+
+  private async getNginxSites(): Promise<{ domain: string; configPath: string; isEnabled: boolean; port: number; isSsl: boolean; sslCertPath?: string }[]> {
+    const sites: { domain: string; configPath: string; isEnabled: boolean; port: number; isSsl: boolean; sslCertPath?: string }[] = [];
+
+    try {
+      // Check if nginx is installed
+      try {
+        await execAsync('which nginx');
+      } catch {
+        return sites; // Nginx not installed
+      }
+
+      // Get enabled sites
+      const enabledSitesPath = '/etc/nginx/sites-enabled';
+      const availableSitesPath = '/etc/nginx/sites-available';
+
+      try {
+        const { stdout: enabledFiles } = await execAsync(`ls ${enabledSitesPath} 2>/dev/null || echo ""`);
+        const enabledSiteFiles = enabledFiles.trim().split('\n').filter(f => f && f !== 'default');
+
+        for (const file of enabledSiteFiles) {
+          const configPath = `${enabledSitesPath}/${file}`;
+          const siteInfo = await this.parseNginxConfig(configPath, true);
+          if (siteInfo) {
+            sites.push(siteInfo);
+          }
+        }
+      } catch (err) {
+        console.error('Error reading enabled sites:', err);
+      }
+
+      // Also check available but not enabled sites
+      try {
+        const { stdout: availableFiles } = await execAsync(`ls ${availableSitesPath} 2>/dev/null || echo ""`);
+        const availableSiteFiles = availableFiles.trim().split('\n').filter(f => f && f !== 'default');
+        const { stdout: enabledFiles } = await execAsync(`ls ${enabledSitesPath} 2>/dev/null || echo ""`);
+        const enabledNames = new Set(enabledFiles.trim().split('\n'));
+
+        for (const file of availableSiteFiles) {
+          if (!enabledNames.has(file)) {
+            const configPath = `${availableSitesPath}/${file}`;
+            const siteInfo = await this.parseNginxConfig(configPath, false);
+            if (siteInfo) {
+              sites.push(siteInfo);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Error reading available sites:', err);
+      }
+    } catch (error) {
+      console.error('Error getting nginx sites:', error);
+    }
+
+    return sites;
+  }
+
+  private async parseNginxConfig(configPath: string, isEnabled: boolean): Promise<{ domain: string; configPath: string; isEnabled: boolean; port: number; isSsl: boolean; sslCertPath?: string } | null> {
+    try {
+      const content = await fs.readFile(configPath, 'utf-8');
+      
+      // Extract server_name
+      const serverNameMatch = content.match(/server_name\s+([^;]+);/);
+      if (!serverNameMatch) return null;
+      
+      const domains = serverNameMatch[1].trim().split(/\s+/);
+      const domain = domains.find(d => d !== '_') || domains[0];
+      
+      // Check for SSL first
+      const hasSslCert = content.includes('ssl_certificate');
+      
+      // Extract listen port and SSL
+      // Look for all listen directives
+      const listenMatches = content.matchAll(/listen\s+(?:::)?(\d+)(\s+ssl)?/g);
+      let port = 80;
+      let isSsl = hasSslCert;
+      
+      for (const match of listenMatches) {
+        const matchedPort = parseInt(match[1]);
+        const hasSslFlag = match[2] !== undefined;
+        
+        // Prefer SSL port if available
+        if (hasSslFlag || matchedPort === 443) {
+          port = matchedPort;
+          isSsl = true;
+          break;
+        } else if (port === 80) {
+          port = matchedPort;
+        }
+      }
+      
+      // If ssl_certificate is present but no explicit SSL listen, assume 443
+      if (hasSslCert && !isSsl) {
+        port = 443;
+        isSsl = true;
+      }
+      
+      // Extract SSL certificate path
+      let sslCertPath: string | undefined;
+      if (isSsl) {
+        const certMatch = content.match(/ssl_certificate\s+([^;]+);/);
+        if (certMatch) {
+          sslCertPath = certMatch[1].trim();
+        }
+      }
+
+      return {
+        domain,
+        configPath,
+        isEnabled,
+        port,
+        isSsl,
+        sslCertPath,
+      };
+    } catch (error) {
+      console.error(`Error parsing nginx config ${configPath}:`, error);
+      return null;
+    }
+  }
+
+  private async checkSite(site: { domain: string; configPath: string; isEnabled: boolean; port: number; isSsl: boolean; sslCertPath?: string }): Promise<Site> {
+    const result: Site = {
+      domain: site.domain,
+      configPath: site.configPath,
+      isEnabled: site.isEnabled,
+      port: site.port,
+      isSsl: site.isSsl,
+      sslCertPath: site.sslCertPath,
+      isReachable: false,
+    };
+
+    // Check SSL certificate expiry if SSL
+    if (site.isSsl && site.sslCertPath) {
+      try {
+        const certInfo = await this.getSSLCertInfo(site.domain, site.port);
+        if (certInfo) {
+          result.sslCertExpiry = certInfo.expiry;
+          result.sslDaysRemaining = certInfo.daysRemaining;
+        }
+      } catch (err) {
+        console.error(`Error getting SSL cert for ${site.domain}:`, err);
+      }
+    }
+
+    // Check if site is reachable
+    try {
+      const reachability = await this.checkReachability(site.domain, site.port, site.isSsl);
+      result.isReachable = reachability.isReachable;
+      result.httpStatusCode = reachability.statusCode;
+      result.responseTimeMs = reachability.responseTime;
+    } catch (err) {
+      console.error(`Error checking reachability for ${site.domain}:`, err);
+    }
+
+    return result;
+  }
+
+  private async getSSLCertInfo(domain: string, port: number): Promise<{ expiry: Date; daysRemaining: number } | null> {
+    return new Promise((resolve) => {
+      const options = {
+        host: domain,
+        port: port,
+        method: 'GET',
+        rejectUnauthorized: false,
+      };
+
+      const req = https.request(options, (res) => {
+        const cert = (res.socket as tls.TLSSocket).getPeerCertificate();
+        if (cert && cert.valid_to) {
+          const expiry = new Date(cert.valid_to);
+          const now = new Date();
+          const daysRemaining = Math.floor((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+          resolve({ expiry, daysRemaining });
+        } else {
+          resolve(null);
+        }
+      });
+
+      req.on('error', () => resolve(null));
+      req.setTimeout(5000, () => {
+        req.destroy();
+        resolve(null);
+      });
+      req.end();
+    });
+  }
+
+  private async checkReachability(domain: string, port: number, isSsl: boolean): Promise<{ isReachable: boolean; statusCode?: number; responseTime?: number }> {
+    return new Promise((resolve) => {
+      const startTime = Date.now();
+      const protocol = isSsl ? https : http;
+      const url = `${isSsl ? 'https' : 'http'}://${domain}:${port}`;
+
+      const req = protocol.get(url, { rejectUnauthorized: false }, (res) => {
+        const responseTime = Date.now() - startTime;
+        resolve({
+          isReachable: true,
+          statusCode: res.statusCode,
+          responseTime,
+        });
+        req.destroy();
+      });
+
+      req.on('error', () => {
+        resolve({ isReachable: false });
+      });
+
+      req.setTimeout(5000, () => {
+        req.destroy();
+        resolve({ isReachable: false });
+      });
+    });
+  }
+}
