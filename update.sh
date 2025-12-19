@@ -5,7 +5,9 @@
 
 set -e  # Exit on any error
 
-AGENT_DIR="/opt/monitoring-agent"
+# Detect agent directory (works for both standalone and submodule)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+AGENT_DIR="$SCRIPT_DIR"
 LOG_FILE="$AGENT_DIR/update.log"
 
 echo "=============================================" >> "$LOG_FILE"
