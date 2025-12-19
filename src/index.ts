@@ -171,7 +171,8 @@ class MonitoringAgent {
     console.log(`   API URL: ${API_URL}`);
     console.log(`   Interval: ${INTERVAL_SECONDS}s`);
     console.log(`   Monitored processes: ${MONITORED_PROCESSES.join(', ')}`);
-    console.log(`   Agent Version: ${AGENT_VERSION}\n`);
+    console.log(`   🔖 Agent Version: ${AGENT_VERSION}`);
+    console.log(`   ✨ Auto-update enabled\n`);
 
     // Send all data immediately
     this.sendMetrics();
