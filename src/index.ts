@@ -2,6 +2,12 @@ import dotenv from 'dotenv';
 import { MetricsCollector } from './collectors/metrics';
 import { ProcessCollector } from './collectors/processes';
 import { SecurityCollector } from './collectors/security';
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as path from 'path';
+import * as fs from 'fs';
+
+const execAsync = promisify(exec);
 
 dotenv.config();
 
@@ -9,6 +15,11 @@ const API_URL = process.env.API_URL || 'http://localhost:5000';
 const API_KEY = process.env.API_KEY || 'dev-test-key-12345';
 const SERVER_NAME = process.env.SERVER_NAME || 'unknown';
 const INTERVAL_SECONDS = parseInt(process.env.INTERVAL_SECONDS || '30');
+
+// Read version from package.json
+const packageJsonPath = path.join(__dirname, '../package.json');
+const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf-8'));
+const AGENT_VERSION = packageJson.version;
 
 // Parse monitored processes from env (comma-separated)
 const MONITORED_PROCESSES = process.env.MONITORED_PROCESSES
@@ -42,6 +53,7 @@ class MonitoringAgent {
         headers: {
           'Content-Type': 'application/json',
           'X-API-Key': API_KEY,
+          'X-Agent-Version': AGENT_VERSION,
         },
         body: JSON.stringify(metrics),
       });
@@ -52,8 +64,14 @@ class MonitoringAgent {
         return;
       }
 
-      const result = (await response.json()) as { id: number; timestamp: string };
+      const result = (await response.json()) as { id: number; timestamp: string; update_required?: boolean; target_version?: string };
       console.log(`✅ Metrics sent successfully (ID: ${result.id})\n`);
+
+      // Check if update is required
+      if (result.update_required && result.target_version) {
+        console.log(`🔄 Update requested to version ${result.target_version}`);
+        await this.performUpdate();
+      }
     } catch (error) {
       console.error('❌ Error sending metrics:', error);
     }
@@ -124,12 +142,36 @@ class MonitoringAgent {
     }
   }
 
+  async performUpdate() {
+    try {
+      console.log('🔄 Starting update process...');
+      
+      const updateScriptPath = path.join(__dirname, '../update.sh');
+      
+      if (!fs.existsSync(updateScriptPath)) {
+        console.error('❌ Update script not found at', updateScriptPath);
+        return;
+      }
+
+      console.log('🔄 Executing update script...');
+      const { stdout, stderr } = await execAsync(updateScriptPath);
+      
+      if (stdout) console.log(stdout);
+      if (stderr) console.error(stderr);
+      
+      console.log('✅ Update completed successfully');
+    } catch (error) {
+      console.error('❌ Update failed:', error);
+    }
+  }
+
   start() {
     console.log('🚀 Monitoring Agent starting...');
     console.log(`   Server: ${SERVER_NAME}`);
     console.log(`   API URL: ${API_URL}`);
     console.log(`   Interval: ${INTERVAL_SECONDS}s`);
-    console.log(`   Monitored processes: ${MONITORED_PROCESSES.join(', ')}\n`);
+    console.log(`   Monitored processes: ${MONITORED_PROCESSES.join(', ')}`);
+    console.log(`   Agent Version: ${AGENT_VERSION}\n`);
 
     // Send all data immediately
     this.sendMetrics();
