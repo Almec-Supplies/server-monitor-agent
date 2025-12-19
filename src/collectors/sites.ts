@@ -187,9 +187,11 @@ export class SitesCollector {
         if (certInfo) {
           result.sslCertExpiry = certInfo.expiry;
           result.sslDaysRemaining = certInfo.daysRemaining;
+        } else {
+          console.log(`⚠️  SSL cert check failed for ${site.domain}:${site.port}`);
         }
       } catch (err) {
-        console.error(`Error getting SSL cert for ${site.domain}:`, err);
+        console.error(`❌ Error getting SSL cert for ${site.domain}:`, err);
       }
     }
 
@@ -199,8 +201,12 @@ export class SitesCollector {
       result.isReachable = reachability.isReachable;
       result.httpStatusCode = reachability.statusCode;
       result.responseTimeMs = reachability.responseTime;
+      
+      if (!reachability.isReachable) {
+        console.log(`⚠️  Reachability check failed for ${site.domain}:${site.port}`);
+      }
     } catch (err) {
-      console.error(`Error checking reachability for ${site.domain}:`, err);
+      console.error(`❌ Error checking reachability for ${site.domain}:`, err);
     }
 
     return result;
@@ -213,6 +219,7 @@ export class SitesCollector {
         port: port,
         method: 'GET',
         rejectUnauthorized: false,
+        servername: domain, // SNI support for virtual hosts
       };
 
       const req = https.request(options, (res) => {
@@ -227,8 +234,11 @@ export class SitesCollector {
         }
       });
 
-      req.on('error', () => resolve(null));
-      req.setTimeout(5000, () => {
+      req.on('error', (err) => {
+        console.log(`SSL check error for ${domain}:${port} - ${err.message}`);
+        resolve(null);
+      });
+      req.setTimeout(10000, () => {
         req.destroy();
         resolve(null);
       });
@@ -240,9 +250,24 @@ export class SitesCollector {
     return new Promise((resolve) => {
       const startTime = Date.now();
       const protocol = isSsl ? https : http;
-      const url = `${isSsl ? 'https' : 'http'}://${domain}:${port}`;
+      // Don't include port in URL if it's standard (80/443)
+      const isStandardPort = (isSsl && port === 443) || (!isSsl && port === 80);
+      const url = isStandardPort 
+        ? `${isSsl ? 'https' : 'http'}://${domain}`
+        : `${isSsl ? 'https' : 'http'}://${domain}:${port}`;
 
-      const req = protocol.get(url, { rejectUnauthorized: false }, (res) => {
+      const options: any = {
+        rejectUnauthorized: false,
+        headers: {
+          'User-Agent': 'Server-Monitor-Agent/1.0',
+        },
+      };
+
+      if (isSsl) {
+        options.servername = domain; // SNI support
+      }
+
+      const req = protocol.get(url, options, (res) => {
         const responseTime = Date.now() - startTime;
         resolve({
           isReachable: true,
@@ -252,11 +277,12 @@ export class SitesCollector {
         req.destroy();
       });
 
-      req.on('error', () => {
+      req.on('error', (err) => {
+        console.log(`Reachability check error for ${domain}:${port} - ${err.message}`);
         resolve({ isReachable: false });
       });
 
-      req.setTimeout(5000, () => {
+      req.setTimeout(10000, () => {
         req.destroy();
         resolve({ isReachable: false });
       });
