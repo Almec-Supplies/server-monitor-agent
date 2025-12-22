@@ -248,7 +248,17 @@ export class SecurityCollector {
       }
 
       if (foundFiles.length === 0) {
-        return null; // No sensitive files found - this is good!
+        return {
+          type: 'sensitive_files',
+          severity: 'info',
+          description: 'No sensitive files exposed in web root',
+          details: {
+            count: 0,
+            files: [],
+            roots: roots,
+            checked: sensitivePatterns,
+          },
+        };
       }
 
       return {
