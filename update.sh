@@ -10,38 +10,43 @@ SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 AGENT_DIR="$SCRIPT_DIR"
 LOG_FILE="$AGENT_DIR/update.log"
 
-echo "=============================================" >> "$LOG_FILE"
-echo "Update started at $(date)" >> "$LOG_FILE"
-echo "=============================================" >> "$LOG_FILE"
+# Function to log to both file and stdout
+log() {
+  echo "$1" | tee -a "$LOG_FILE"
+}
+
+log "============================================="
+log "Update started at $(date)"
+log "============================================="
 
 cd "$AGENT_DIR"
 
 # Stash any local changes to .env
-echo "Stashing local changes..." >> "$LOG_FILE"
-git stash push -m "Auto-stash before update" .env 2>> "$LOG_FILE" || true
+log "Stashing local changes..."
+git stash push -m "Auto-stash before update" .env 2>&1 | tee -a "$LOG_FILE" || true
 
 # Pull latest changes
-echo "Pulling latest changes from GitHub..." >> "$LOG_FILE"
-git pull origin main >> "$LOG_FILE" 2>&1
+log "Pulling latest changes from GitHub..."
+git pull origin main 2>&1 | tee -a "$LOG_FILE"
 
 # Restore .env if it was stashed
-echo "Restoring local .env..." >> "$LOG_FILE"
-git stash pop 2>> "$LOG_FILE" || true
+log "Restoring local .env..."
+git stash pop 2>&1 | tee -a "$LOG_FILE" || true
 
 # Install dependencies
-echo "Installing dependencies..." >> "$LOG_FILE"
-npm install >> "$LOG_FILE" 2>&1
+log "Installing dependencies..."
+npm install 2>&1 | tee -a "$LOG_FILE"
 
 # Build TypeScript
-echo "Building TypeScript..." >> "$LOG_FILE"
-npm run build >> "$LOG_FILE" 2>&1
+log "Building TypeScript..."
+npm run build 2>&1 | tee -a "$LOG_FILE"
 
 # Restart PM2 process
-echo "Restarting agent..." >> "$LOG_FILE"
-pm2 restart monitor-agent >> "$LOG_FILE" 2>&1
+log "Restarting agent..."
+pm2 restart monitor-agent 2>&1 | tee -a "$LOG_FILE"
 
-echo "✅ Update completed successfully at $(date)" >> "$LOG_FILE"
-echo "=============================================" >> "$LOG_FILE"
-echo "" >> "$LOG_FILE"
+log "✅ Update completed successfully at $(date)"
+log "============================================="
+log ""
 
 exit 0
