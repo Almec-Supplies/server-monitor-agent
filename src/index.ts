@@ -64,6 +64,7 @@ class MonitoringAgent {
           'Content-Type': 'application/json',
           'X-API-Key': API_KEY,
           'X-Agent-Version': AGENT_VERSION,
+          'X-Refresh-Interval': INTERVAL_SECONDS.toString(),
         },
         body: JSON.stringify(metrics),
       });
