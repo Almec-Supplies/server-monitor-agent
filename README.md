@@ -14,6 +14,61 @@ Lightweight monitoring agent that collects system metrics, process information, 
 
 ### Prerequisites
 - Node.js 18+
+- User account with appropriate permissions (see System Requirements below)
+
+### System Requirements
+
+The monitoring agent needs access to system logs and commands. You have two options:
+
+#### Option A: Automated Setup (Recommended)
+
+Run the included setup script:
+```bash
+cd /opt/monitoring-agent
+./setup-permissions.sh
+```
+
+This will automatically:
+- Add your user to the `adm` group
+- Create `/etc/sudoers.d/monitoring-agent` with required permissions
+- Verify the configuration
+
+**Important:** Log out and log back in after running the script for group changes to take effect.
+
+#### Option B: Manual Setup
+
+1. **Add user to the `adm` group** (for log file access):
+```bash
+sudo usermod -aG adm $USER
+```
+
+2. **Configure passwordless sudo** for specific commands:
+```bash
+sudo visudo -f /etc/sudoers.d/monitoring-agent
+```
+
+Add the following lines (replace `username` with your actual username):
+```
+# Monitoring Agent - Passwordless sudo for specific commands
+username ALL=(ALL) NOPASSWD: /usr/bin/find /var/log/nginx -name *.error.log -type f
+username ALL=(ALL) NOPASSWD: /usr/bin/tail /var/log/*
+username ALL=(ALL) NOPASSWD: /usr/bin/test
+username ALL=(ALL) NOPASSWD: /usr/bin/grep * /var/log/auth.log
+username ALL=(ALL) NOPASSWD: /usr/sbin/ufw status
+username ALL=(ALL) NOPASSWD: /usr/sbin/iptables -L -n
+username ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active fail2ban
+username ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client *
+username ALL=(ALL) NOPASSWD: /usr/bin/find /home -maxdepth 1 -type d -mtime -30 -printf *
+```
+
+Save and exit (Ctrl+X, Y, Enter).
+
+3. **Log out and log back in** for group changes to take effect:
+```bash
+# Verify you're in the adm group
+groups
+# Should show: username ... adm ...
+```
 
 ### Quick Start
 
@@ -59,7 +114,22 @@ pm2 save
 pm2 startup  # Follow instructions to enable auto-start on boot
 ```
 
-7. Verify it's running:
+### Verification
+
+After installation, verify your setup:
+
+1. **Check user is in adm group:**
+```bash
+groups | grep adm
+```
+
+2. **Test sudo access (should not ask for password):**
+```bash
+sudo tail -1 /var/log/auth.log
+sudo ufw status
+```
+
+3. **Check agent logs:**
 ```bash
 pm2 logs monitor-agent --lines 20
 ```
@@ -108,6 +178,15 @@ All configuration is done via the `.env` file:
 
 ## Troubleshooting
 
+**Agent not collecting metrics:**
+- Verify user is in `adm` group: `groups`
+- Check sudo permissions: `sudo -l`
+- Ensure you logged out/in after group change
+
+**Permission denied errors:**
+- Check `/etc/sudoers.d/monitoring-agent` exists and has correct username
+- Verify log files are readable: `ls -la /var/log/auth.log`
+
 **Check if agent is running:**
 ```bash
 pm2 list
@@ -131,10 +210,22 @@ pm2 delete monitor-agent
 
 ## Requirements
 
-- Linux-based operating system
+- Linux-based operating system (Ubuntu/Debian recommended)
 - Node.js 18 or higher
 - Network access to monitoring API server
-- Permissions to read system metrics (runs as regular user)
+- User with sudo privileges for initial setup
+- User in `adm` group for log access
+- Passwordless sudo for specific monitoring commands (see Installation)
+
+## Security Notes
+
+The agent requires passwordless sudo for specific read-only commands to collect security metrics. These commands are limited to:
+- Reading log files (`tail`, `grep`)
+- Checking firewall status (`ufw`, `iptables`)
+- Testing file existence (`test`, `find`)
+- Querying fail2ban status
+
+All sudo commands are scoped to the minimum required paths and operations. The agent runs as a regular user and does NOT have full sudo access.
 
 ## License
 
