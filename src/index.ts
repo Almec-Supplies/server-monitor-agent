@@ -3,6 +3,8 @@ import { MetricsCollector } from './collectors/metrics';
 import { ProcessCollector } from './collectors/processes';
 import { SecurityCollector } from './collectors/security';
 import { SitesCollector } from './collectors/sites';
+import { IntrusionCollector } from './collectors/intrusion';
+import { ErrorLogsCollector } from './collectors/errorlogs';
 import { exec } from 'child_process';
 import { promisify } from 'util';
 import * as path from 'path';
@@ -32,6 +34,8 @@ class MonitoringAgent {
   private processCollector: ProcessCollector;
   private securityCollector: SecurityCollector;
   private sitesCollector: SitesCollector;
+  private intrusionCollector: IntrusionCollector;
+  private errorLogsCollector: ErrorLogsCollector;
   private intervalId?: NodeJS.Timeout;
   private securityIntervalId?: NodeJS.Timeout;
   private sitesIntervalId?: NodeJS.Timeout;
@@ -41,6 +45,8 @@ class MonitoringAgent {
     this.processCollector = new ProcessCollector({ processes: MONITORED_PROCESSES });
     this.securityCollector = new SecurityCollector();
     this.sitesCollector = new SitesCollector();
+    this.intrusionCollector = new IntrusionCollector();
+    this.errorLogsCollector = new ErrorLogsCollector();
   }
 
   async sendMetrics() {
@@ -115,31 +121,61 @@ class MonitoringAgent {
 
   async sendSecurityAudits() {
     try {
-      const audits = await this.securityCollector.collectAll();
+      const [audits, intrusions, errorLogs] = await Promise.all([
+        this.securityCollector.collectAll(),
+        this.intrusionCollector.collectAll(),
+        this.errorLogsCollector.collectAll(),
+      ]);
 
-      if (audits.length === 0) {
+      const allAudits = [...audits, ...intrusions];
+
+      if (allAudits.length === 0 && errorLogs.length === 0) {
         console.log(`🔒 Security check: No issues detected`);
         return;
       }
 
-      console.log(`🔒 Security audits collected (${audits.length})...`);
-      audits.forEach(audit => {
-        const icon = audit.severity === 'critical' ? '🚨' : audit.severity === 'warning' ? '⚠️' : 'ℹ️';
-        console.log(`   ${icon} ${audit.type}: ${audit.description}`);
-      });
+      if (allAudits.length > 0) {
+        console.log(`🔒 Security audits collected (${allAudits.length})...`);
+        allAudits.forEach(audit => {
+          const icon = audit.severity === 'critical' ? '🚨' : audit.severity === 'warning' ? '⚠️' : 'ℹ️';
+          console.log(`   ${icon} ${audit.type}: ${audit.description}`);
+        });
 
-      const response = await fetch(`${API_URL}/api/security`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-API-Key': API_KEY,
-        },
-        body: JSON.stringify({ audits }),
-      });
+        const response = await fetch(`${API_URL}/api/security`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': API_KEY,
+          },
+          body: JSON.stringify({ audits: allAudits }),
+        });
 
-      if (!response.ok) {
-        const error = await response.text();
-        console.error(`❌ Failed to send security audits: ${response.status} - ${error}`);
+        if (!response.ok) {
+          const error = await response.text();
+          console.error(`❌ Failed to send security audits: ${response.status} - ${error}`);
+        }
+      }
+
+      if (errorLogs.length > 0) {
+        console.log(`📋 Error logs collected (${errorLogs.length})...`);
+        errorLogs.forEach(log => {
+          const icon = log.severity === 'critical' ? '🚨' : log.severity === 'warning' ? '⚠️' : 'ℹ️';
+          console.log(`   ${icon} ${log.source}: ${log.errorCount} errors, ${log.warningCount} warnings`);
+        });
+
+        const response = await fetch(`${API_URL}/api/errorlogs`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-API-Key': API_KEY,
+          },
+          body: JSON.stringify({ errorLogs }),
+        });
+
+        if (!response.ok) {
+          const error = await response.text();
+          console.error(`❌ Failed to send error logs: ${response.status} - ${error}`);
+        }
       }
     } catch (error) {
       console.error('❌ Error sending security audits:', error);
