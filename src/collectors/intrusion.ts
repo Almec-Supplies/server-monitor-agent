@@ -87,35 +87,97 @@ export class IntrusionCollector {
 
   private async checkSuspiciousProcesses(): Promise<IntrusionDetection | null> {
     try {
-      // List of commonly suspicious process names
-      const suspiciousNames = [
-        'nc', 'netcat', 'ncat',  // Network tools
-        'mimikatz', 'metasploit',  // Hacking tools
-        'cryptominer', 'xmrig', 'minerd',  // Crypto miners
-        '.hidden', '...',  // Hidden processes
-      ];
-
+      // Get full process list with command line arguments
       const { stdout } = await execAsync(
-        `ps aux --no-headers | awk '{print $1":"$2":"$11}' | head -100`
+        `ps aux --no-headers | awk '{u=$1; p=$2; $1=$2=$3=$4=$5=$6=$7=$8=$9=$10=""; cmd=$0; gsub(/^ +/, "", cmd); print u":"p":"cmd}' | head -200`
       );
 
-      const processes = stdout.trim().split('\n');
+      const processes = stdout.trim().split('\n').filter(line => line.length > 0);
       const suspicious: any[] = [];
 
+      // Define suspicious patterns with context
+      const suspiciousPatterns = [
+        // Network tools - check for dangerous usage
+        { 
+          names: ['/nc', '/netcat', '/ncat'], 
+          checkArgs: (cmd: string) => {
+            // Only flag if used with dangerous arguments
+            return cmd.includes(' -l') || cmd.includes(' -e') || cmd.includes(' -c') || 
+                   cmd.includes('--listen') || cmd.includes('--exec');
+          },
+          reason: 'Network tool with dangerous arguments'
+        },
+        // Hacking/pentesting tools
+        { names: ['mimikatz', 'metasploit', 'msfconsole', 'msfvenom'], checkArgs: () => true, reason: 'Hacking tool detected' },
+        // Crypto miners
+        { names: ['xmrig', 'minerd', 'ccminer', 'ethminer', 'cryptonight'], checkArgs: () => true, reason: 'Cryptocurrency miner' },
+        // Reverse shells
+        { names: ['python', 'perl', 'ruby', 'php', 'bash', 'sh'], checkArgs: (cmd: string) => {
+          // Check for reverse shell patterns
+          return (cmd.includes('socket') && cmd.includes('exec')) ||
+                 cmd.includes('/dev/tcp/') ||
+                 (cmd.includes('bash') && cmd.includes('-i'));
+        }, reason: 'Potential reverse shell' },
+      ];
+
       processes.forEach(proc => {
-        const [user, pid, cmd] = proc.split(':');
-        const cmdLower = cmd.toLowerCase();
+        const parts = proc.split(':');
+        if (parts.length < 3) return;
         
-        suspiciousNames.forEach(suspName => {
-          if (cmdLower.includes(suspName)) {
-            suspicious.push({ user, pid, command: cmd, reason: `Suspicious command: ${suspName}` });
+        const user = parts[0];
+        const pid = parts[1];
+        const fullCmd = parts.slice(2).join(':');
+        const cmdLower = fullCmd.toLowerCase();
+
+        // Extract the binary path (first part of command)
+        const binary = fullCmd.trim().split(' ')[0];
+        const binaryName = binary.split('/').pop() || '';
+
+        // Check for suspicious locations
+        if (binary.startsWith('/tmp/') || binary.startsWith('/dev/shm/') || binary.startsWith('/var/tmp/')) {
+          suspicious.push({ 
+            user, 
+            pid, 
+            command: fullCmd.substring(0, 150), 
+            reason: 'Binary running from suspicious location' 
+          });
+          return;
+        }
+
+        // Check for hidden/obfuscated processes
+        if (binaryName.startsWith('.') || binaryName === '...' || binaryName === '') {
+          suspicious.push({ 
+            user, 
+            pid, 
+            command: fullCmd.substring(0, 150), 
+            reason: 'Hidden or obfuscated process name' 
+          });
+          return;
+        }
+
+        // Check against suspicious patterns
+        suspiciousPatterns.forEach(pattern => {
+          const matchesName = pattern.names.some(name => {
+            // For paths like /nc, check if binary ends with it
+            if (name.startsWith('/')) {
+              return binary.endsWith(name) || binary.includes(name + ' ');
+            }
+            // For regular names, check exact binary name match
+            return binaryName === name || binaryName.startsWith(name + ' ');
+          });
+
+          if (matchesName && pattern.checkArgs(cmdLower)) {
+            // Avoid duplicates
+            if (!suspicious.some(s => s.pid === pid)) {
+              suspicious.push({ 
+                user, 
+                pid, 
+                command: fullCmd.substring(0, 150), 
+                reason: pattern.reason 
+              });
+            }
           }
         });
-
-        // Check for processes running from /tmp or /dev/shm
-        if (cmdLower.includes('/tmp/') || cmdLower.includes('/dev/shm/')) {
-          suspicious.push({ user, pid, command: cmd, reason: 'Running from suspicious location' });
-        }
       });
 
       if (suspicious.length === 0) {
