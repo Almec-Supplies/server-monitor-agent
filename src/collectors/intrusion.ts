@@ -119,7 +119,15 @@ export class IntrusionCollector {
       });
 
       if (suspicious.length === 0) {
-        return null;
+        return {
+          type: 'suspicious_processes',
+          severity: 'info',
+          description: 'No suspicious processes detected',
+          details: {
+            count: 0,
+            processes: [],
+          },
+        };
       }
 
       return {

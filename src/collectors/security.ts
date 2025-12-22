@@ -221,7 +221,7 @@ export class SecurityCollector {
     try {
       // Find nginx document roots
       const { stdout: nginxRoots } = await execAsync(
-        `sudo grep -r "root " /etc/nginx/sites-enabled/ 2>/dev/null | grep -v "#" | awk '{print $NF}' | tr -d ';' | sort -u || echo ""`
+        `sudo grep "^\\s*root " /etc/nginx/sites-enabled/* 2>/dev/null | awk '{print $NF}' | tr -d ';' | sort -u || echo ""`
       );
 
       if (!nginxRoots.trim()) {
