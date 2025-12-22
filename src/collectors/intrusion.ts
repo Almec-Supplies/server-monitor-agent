@@ -111,12 +111,15 @@ export class IntrusionCollector {
         { names: ['mimikatz', 'metasploit', 'msfconsole', 'msfvenom'], checkArgs: () => true, reason: 'Hacking tool detected' },
         // Crypto miners
         { names: ['xmrig', 'minerd', 'ccminer', 'ethminer', 'cryptonight'], checkArgs: () => true, reason: 'Cryptocurrency miner' },
-        // Reverse shells
-        { names: ['python', 'perl', 'ruby', 'php', 'bash', 'sh'], checkArgs: (cmd: string) => {
-          // Check for reverse shell patterns
-          return (cmd.includes('socket') && cmd.includes('exec')) ||
-                 cmd.includes('/dev/tcp/') ||
-                 (cmd.includes('bash') && cmd.includes('-i'));
+        // Reverse shells - check for actual reverse shell patterns
+        { names: ['python', 'python2', 'python3', 'perl', 'ruby', 'php', 'bash', 'sh'], checkArgs: (cmd: string) => {
+          // Only flag if it has actual reverse shell indicators
+          const hasSocketAndExec = cmd.includes('socket') && (cmd.includes('exec') || cmd.includes('dup2'));
+          const hasDevTcp = cmd.includes('/dev/tcp/');
+          const hasBase64Encoded = cmd.includes('base64') && (cmd.includes('eval') || cmd.includes('exec'));
+          const hasConnectPattern = cmd.includes('connect(') && (cmd.includes('subprocess') || cmd.includes('system'));
+          
+          return hasSocketAndExec || hasDevTcp || hasBase64Encoded || hasConnectPattern;
         }, reason: 'Potential reverse shell' },
       ];
 
@@ -128,6 +131,19 @@ export class IntrusionCollector {
         const pid = parts[1];
         const fullCmd = parts.slice(2).join(':');
         const cmdLower = fullCmd.toLowerCase();
+
+        // Skip known legitimate processes
+        const legitimatePatterns = [
+          '.vscode-server',
+          'systemd',
+          '/usr/lib/snapd',
+          '/snap/',
+          'code-server',
+        ];
+        
+        if (legitimatePatterns.some(pattern => fullCmd.includes(pattern))) {
+          return;
+        }
 
         // Extract the binary path (first part of command)
         const binary = fullCmd.trim().split(' ')[0];
