@@ -220,6 +220,7 @@ export class SitesCollector {
         method: 'GET',
         rejectUnauthorized: false,
         servername: domain, // SNI support for virtual hosts
+        family: 4, // Force IPv4
       };
 
       const req = https.request(options, (res) => {
@@ -258,6 +259,7 @@ export class SitesCollector {
 
       const options: any = {
         rejectUnauthorized: false,
+        family: 4, // Force IPv4
         headers: {
           'User-Agent': 'Server-Monitor-Agent/1.0',
         },
