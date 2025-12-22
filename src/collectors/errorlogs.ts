@@ -34,56 +34,61 @@ export class ErrorLogsCollector {
 
   private async checkNginxErrors(): Promise<ErrorLogReport | null> {
     try {
-      const errorLogPath = '/var/log/nginx/error.log';
-
-      // Check if log exists and is readable
-      try {
-        await fs.access(errorLogPath, fs.constants.R_OK);
-      } catch {
-        // Try with sudo
-        const { stdout } = await execAsync(
-          `sudo test -f ${errorLogPath} && echo "exists" || echo "missing"`
-        );
-        if (!stdout.includes('exists')) {
-          return null;
-        }
-      }
-
-      // Count errors by severity (last 1000 lines)
-      const { stdout } = await execAsync(
-        `sudo tail -1000 ${errorLogPath} 2>/dev/null || echo ""`
+      // Find all nginx error log files (including virtual host logs)
+      const { stdout: logFiles } = await execAsync(
+        `sudo find /var/log/nginx -name "*.error.log" -type f 2>/dev/null || echo ""`
       );
 
-      if (!stdout.trim()) {
+      if (!logFiles.trim()) {
         return null;
       }
 
-      const lines = stdout.trim().split('\n');
-      let errorCount = 0;
-      let warningCount = 0;
-      let criticalCount = 0;
-      const recentErrors: Array<{ timestamp: string; level: string; message: string }> = [];
+      const files = logFiles.trim().split('\n').filter(f => f.length > 0);
+      
+      let totalErrorCount = 0;
+      let totalWarningCount = 0;
+      let totalCriticalCount = 0;
+      const allRecentErrors: Array<{ timestamp: string; level: string; message: string }> = [];
 
-      lines.forEach(line => {
-        if (line.includes('[error]')) {
-          errorCount++;
-          if (recentErrors.length < 5) {
-            recentErrors.push(this.parseNginxLogLine(line, 'error'));
+      // Process each error log file
+      for (const errorLogPath of files) {
+        try {
+          // Count errors by severity (last 500 lines per file)
+          const { stdout } = await execAsync(
+            `sudo tail -500 ${errorLogPath} 2>/dev/null || echo ""`
+          );
+
+          if (!stdout.trim()) {
+            continue;
           }
-        } else if (line.includes('[warn]')) {
-          warningCount++;
-          if (recentErrors.length < 5) {
-            recentErrors.push(this.parseNginxLogLine(line, 'warning'));
-          }
-        } else if (line.includes('[crit]') || line.includes('[alert]') || line.includes('[emerg]')) {
-          criticalCount++;
-          if (recentErrors.length < 5) {
-            recentErrors.push(this.parseNginxLogLine(line, 'critical'));
-          }
+
+          const lines = stdout.trim().split('\n');
+          
+          lines.forEach(line => {
+            if (line.includes('[error]')) {
+              totalErrorCount++;
+              if (allRecentErrors.length < 10) {
+                allRecentErrors.push(this.parseNginxLogLine(line, 'error'));
+              }
+            } else if (line.includes('[warn]')) {
+              totalWarningCount++;
+              if (allRecentErrors.length < 10) {
+                allRecentErrors.push(this.parseNginxLogLine(line, 'warning'));
+              }
+            } else if (line.includes('[crit]') || line.includes('[alert]') || line.includes('[emerg]')) {
+              totalCriticalCount++;
+              if (allRecentErrors.length < 10) {
+                allRecentErrors.push(this.parseNginxLogLine(line, 'critical'));
+              }
+            }
+          });
+        } catch (error) {
+          // Skip this file if we can't read it
+          continue;
         }
-      });
+      }
 
-      const totalErrors = errorCount + warningCount + criticalCount;
+      const totalErrors = totalErrorCount + totalWarningCount + totalCriticalCount;
 
       if (totalErrors === 0) {
         return null;
@@ -91,11 +96,11 @@ export class ErrorLogsCollector {
 
       return {
         source: 'nginx',
-        severity: criticalCount > 0 ? 'critical' : errorCount > 100 ? 'warning' : 'info',
-        errorCount,
-        warningCount,
-        criticalCount,
-        recentErrors: recentErrors.slice(0, 5),
+        severity: totalCriticalCount > 0 ? 'critical' : totalErrorCount > 100 ? 'warning' : 'info',
+        errorCount: totalErrorCount,
+        warningCount: totalWarningCount,
+        criticalCount: totalCriticalCount,
+        recentErrors: allRecentErrors.slice(0, 5),
       };
     } catch (error) {
       console.error('Error checking nginx logs:', error);
