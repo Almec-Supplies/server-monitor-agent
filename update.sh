@@ -21,17 +21,20 @@ log "============================================="
 
 cd "$AGENT_DIR"
 
-# Stash any local changes to .env
+# Stash any local changes
 log "Stashing local changes..."
-git stash push -m "Auto-stash before update" .env 2>&1 | tee -a "$LOG_FILE" || true
+git stash push -m "Auto-stash before update" 2>&1 | tee -a "$LOG_FILE" || true
 
 # Pull latest changes
 log "Pulling latest changes from GitHub..."
 git pull origin main 2>&1 | tee -a "$LOG_FILE"
 
-# Restore .env if it was stashed
-log "Restoring local .env..."
-git stash pop 2>&1 | tee -a "$LOG_FILE" || true
+# Restore stashed changes (keep .env, discard rest)
+log "Restoring local .env if needed..."
+if git stash list | grep -q "Auto-stash before update"; then
+  git checkout stash@{0} -- .env 2>&1 | tee -a "$LOG_FILE" || true
+  git stash drop 2>&1 | tee -a "$LOG_FILE" || true
+fi
 
 # Install dependencies
 log "Installing dependencies..."
