@@ -225,7 +225,17 @@ export class SecurityCollector {
       );
 
       if (!nginxRoots.trim()) {
-        return null;
+        return {
+          type: 'sensitive_files',
+          severity: 'info',
+          description: 'No nginx sites configured',
+          details: {
+            count: 0,
+            files: [],
+            roots: [],
+            checked: [],
+          },
+        };
       }
 
       const roots = nginxRoots.trim().split('\n').filter(r => r.length > 0);
