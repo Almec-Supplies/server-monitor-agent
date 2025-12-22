@@ -22,17 +22,23 @@ export class SecurityCollector {
         openPorts,
         pendingUpdates,
         firewallStatus,
+        sensitiveFiles,
+        fail2banStatus,
       ] = await Promise.all([
         this.checkFailedSSHLogins(),
         this.checkOpenPorts(),
         this.checkPendingUpdates(),
         this.checkFirewallStatus(),
+        this.checkSensitiveFiles(),
+        this.checkFail2ban(),
       ]);
 
       if (failedLogins) audits.push(failedLogins);
       if (openPorts) audits.push(openPorts);
       if (pendingUpdates) audits.push(pendingUpdates);
       if (firewallStatus) audits.push(firewallStatus);
+      if (sensitiveFiles) audits.push(sensitiveFiles);
+      if (fail2banStatus) audits.push(fail2banStatus);
     } catch (error) {
       console.error('Error collecting security audits:', error);
     }
@@ -208,6 +214,117 @@ export class SecurityCollector {
           },
         };
       }
+    }
+  }
+
+  private async checkSensitiveFiles(): Promise<SecurityAudit | null> {
+    try {
+      // Find nginx document roots
+      const { stdout: nginxRoots } = await execAsync(
+        `sudo grep -r "root " /etc/nginx/sites-enabled/ 2>/dev/null | grep -v "#" | awk '{print $NF}' | tr -d ';' | sort -u || echo ""`
+      );
+
+      if (!nginxRoots.trim()) {
+        return null;
+      }
+
+      const roots = nginxRoots.trim().split('\n').filter(r => r.length > 0);
+      const sensitivePatterns = ['.env', '.git', 'config.php', '.htaccess', 'wp-config.php', 'database.yml'];
+      const foundFiles: Array<{ file: string; path: string }> = [];
+
+      for (const root of roots) {
+        for (const pattern of sensitivePatterns) {
+          try {
+            const { stdout } = await execAsync(
+              `sudo test -e ${root}/${pattern} && echo "found" || echo ""`
+            );
+            if (stdout.includes('found')) {
+              foundFiles.push({ file: pattern, path: `${root}/${pattern}` });
+            }
+          } catch {
+            continue;
+          }
+        }
+      }
+
+      if (foundFiles.length === 0) {
+        return null; // No sensitive files found - this is good!
+      }
+
+      return {
+        type: 'sensitive_files',
+        severity: 'critical',
+        description: `${foundFiles.length} sensitive file(s) in web root`,
+        details: {
+          count: foundFiles.length,
+          files: foundFiles,
+          roots: roots,
+        },
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  private async checkFail2ban(): Promise<SecurityAudit | null> {
+    try {
+      // Check if fail2ban is installed and running
+      const { stdout: statusOutput } = await execAsync(
+        `sudo systemctl is-active fail2ban 2>/dev/null || echo "inactive"`
+      );
+
+      const isActive = statusOutput.trim() === 'active';
+
+      if (!isActive) {
+        return {
+          type: 'fail2ban_status',
+          severity: 'warning',
+          description: 'Fail2ban is not active',
+          details: {
+            active: false,
+            installed: false,
+          },
+        };
+      }
+
+      // Get banned IPs count
+      const { stdout: bannedOutput } = await execAsync(
+        `sudo fail2ban-client status 2>/dev/null | grep "Jail list" | sed 's/.*://; s/,//g' || echo ""`
+      );
+
+      const jails = bannedOutput.trim().split(/\s+/).filter(j => j.length > 0);
+      let totalBanned = 0;
+      const jailInfo: Array<{ jail: string; banned: number }> = [];
+
+      for (const jail of jails) {
+        try {
+          const { stdout } = await execAsync(
+            `sudo fail2ban-client status ${jail} 2>/dev/null | grep "Currently banned" | awk '{print $NF}' || echo "0"`
+          );
+          const banned = parseInt(stdout.trim()) || 0;
+          totalBanned += banned;
+          if (banned > 0) {
+            jailInfo.push({ jail, banned });
+          }
+        } catch {
+          continue;
+        }
+      }
+
+      return {
+        type: 'fail2ban_status',
+        severity: 'info',
+        description: `Fail2ban active - ${totalBanned} IP(s) banned`,
+        details: {
+          active: true,
+          installed: true,
+          totalBanned,
+          jails: jailInfo,
+          jailCount: jails.length,
+        },
+      };
+    } catch (error) {
+      return null;
     }
   }
 }
