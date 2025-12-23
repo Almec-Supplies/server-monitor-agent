@@ -38,10 +38,17 @@ export class SitesCollector {
         }
       }
       
-      // Check each unique site
-      for (const site of uniqueSites.values()) {
-        const siteInfo = await this.checkSite(site);
-        sites.push(siteInfo);
+      // Check each unique site with rate limiting (5 concurrent max)
+      const sitesArray = Array.from(uniqueSites.values());
+      for (let i = 0; i < sitesArray.length; i += 5) {
+        const batch = sitesArray.slice(i, i + 5);
+        const batchResults = await Promise.all(batch.map(site => this.checkSite(site)));
+        sites.push(...batchResults);
+        
+        // Small delay between batches to avoid overwhelming the server
+        if (i + 5 < sitesArray.length) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
       }
     } catch (error) {
       console.error('Error collecting sites:', error);

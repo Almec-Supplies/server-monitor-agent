@@ -191,7 +191,8 @@ class MonitoringAgent {
       console.log(`   Found ${sites.length} site(s)`);
       sites.forEach(site => {
         const status = site.isReachable ? '✅' : '❌';
-        const ssl = site.isSsl ? `🔒 (${site.sslDaysRemaining}d)` : '';
+        const sslDays = site.sslDaysRemaining !== undefined ? `${site.sslDaysRemaining}d` : 'unknown';
+        const ssl = site.isSsl ? `🔒 (${sslDays})` : '';
         console.log(`   ${status} ${site.domain} ${ssl}`);
       });
 
