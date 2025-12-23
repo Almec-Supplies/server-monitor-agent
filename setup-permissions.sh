@@ -54,6 +54,9 @@ $USER ALL=(ALL) NOPASSWD: /usr/bin/grep * /var/log/auth.log
 $USER ALL=(ALL) NOPASSWD: /usr/bin/cat /var/www/vhosts/system/*/conf/nginx.conf
 $USER ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/nginx/plesk.conf.d/vhosts/*.conf
 
+# Plesk SSL certificate reading
+$USER ALL=(ALL) NOPASSWD: /usr/bin/openssl x509 -noout -enddate -in /opt/psa/var/certificates/*
+
 # File testing
 $USER ALL=(ALL) NOPASSWD: /usr/bin/test
 

@@ -38,16 +38,16 @@ export class SitesCollector {
         }
       }
       
-      // Check each unique site with rate limiting (5 concurrent max)
+      // Check each unique site with rate limiting (3 concurrent max)
       const sitesArray = Array.from(uniqueSites.values());
-      for (let i = 0; i < sitesArray.length; i += 5) {
-        const batch = sitesArray.slice(i, i + 5);
+      for (let i = 0; i < sitesArray.length; i += 3) {
+        const batch = sitesArray.slice(i, i + 3);
         const batchResults = await Promise.all(batch.map(site => this.checkSite(site)));
         sites.push(...batchResults);
         
         // Small delay between batches to avoid overwhelming the server
-        if (i + 5 < sitesArray.length) {
-          await new Promise(resolve => setTimeout(resolve, 1000));
+        if (i + 3 < sitesArray.length) {
+          await new Promise(resolve => setTimeout(resolve, 2000));
         }
       }
     } catch (error) {
@@ -231,12 +231,24 @@ export class SitesCollector {
     // Check SSL certificate expiry if SSL
     if (site.isSsl && site.sslCertPath) {
       try {
-        const certInfo = await this.getSSLCertInfo(site.domain, site.port);
-        if (certInfo) {
-          result.sslCertExpiry = certInfo.expiry;
-          result.sslDaysRemaining = certInfo.daysRemaining;
+        // For Plesk certs, read directly from disk (much faster and more reliable)
+        if (site.sslCertPath.startsWith('/opt/psa/var/certificates/')) {
+          const certInfo = await this.getPleskSSLCertInfo(site.sslCertPath);
+          if (certInfo) {
+            result.sslCertExpiry = certInfo.expiry;
+            result.sslDaysRemaining = certInfo.daysRemaining;
+          } else {
+            console.log(`⚠️  SSL cert check failed for ${site.domain}:${site.port}`);
+          }
         } else {
-          console.log(`⚠️  SSL cert check failed for ${site.domain}:${site.port}`);
+          // For non-Plesk certs, use network check
+          const certInfo = await this.getSSLCertInfo(site.domain, site.port);
+          if (certInfo) {
+            result.sslCertExpiry = certInfo.expiry;
+            result.sslDaysRemaining = certInfo.daysRemaining;
+          } else {
+            console.log(`⚠️  SSL cert check failed for ${site.domain}:${site.port}`);
+          }
         }
       } catch (err) {
         console.error(`❌ Error getting SSL cert for ${site.domain}:`, err);
@@ -258,6 +270,25 @@ export class SitesCollector {
     }
 
     return result;
+  }
+
+  private async getPleskSSLCertInfo(certPath: string): Promise<{ expiry: Date; daysRemaining: number } | null> {
+    try {
+      // Use openssl to read certificate expiry date from file
+      const { stdout } = await execAsync(`sudo openssl x509 -noout -enddate -in "${certPath}" 2>/dev/null`);
+      const endDateMatch = stdout.match(/notAfter=(.+)/);
+      
+      if (endDateMatch) {
+        const expiry = new Date(endDateMatch[1]);
+        const now = new Date();
+        const daysRemaining = Math.floor((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+        return { expiry, daysRemaining };
+      }
+      
+      return null;
+    } catch (err) {
+      return null;
+    }
   }
 
   private async getSSLCertInfo(domain: string, port: number): Promise<{ expiry: Date; daysRemaining: number } | null> {
@@ -287,7 +318,7 @@ export class SitesCollector {
         console.log(`SSL check error for ${domain}:${port} - ${err.message}`);
         resolve(null);
       });
-      req.setTimeout(10000, () => {
+      req.setTimeout(20000, () => {
         req.destroy();
         resolve(null);
       });
