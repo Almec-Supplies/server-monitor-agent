@@ -162,14 +162,14 @@ export class SitesCollector {
       const hasSslCert = content.includes('ssl_certificate');
       
       // Extract listen port and SSL
-      // Look for all listen directives
-      const listenMatches = content.matchAll(/listen\s+(?:::)?(\d+)(\s+ssl)?/g);
+      // Look for all listen directives (supports both "listen 443 ssl" and "listen IP:443 ssl" formats)
+      const listenMatches = content.matchAll(/listen\s+(?:[\d.]+:)?(\d+)(?:\s+ssl)?/g);
       let port = 80;
       let isSsl = hasSslCert;
       
       for (const match of listenMatches) {
         const matchedPort = parseInt(match[1]);
-        const hasSslFlag = match[2] !== undefined;
+        const hasSslFlag = match[0].includes(' ssl');
         
         // Prefer SSL port if available
         if (hasSslFlag || matchedPort === 443) {
