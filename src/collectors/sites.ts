@@ -142,7 +142,14 @@ export class SitesCollector {
 
   private async parseNginxConfig(configPath: string, isEnabled: boolean): Promise<{ domain: string; configPath: string; isEnabled: boolean; port: number; isSsl: boolean; sslCertPath?: string } | null> {
     try {
-      const content = await fs.readFile(configPath, 'utf-8');
+      // Use sudo for Plesk configs (they're owned by root)
+      let content: string;
+      if (configPath.includes('/var/www/vhosts/system') || configPath.includes('/etc/nginx/plesk.conf.d')) {
+        const { stdout } = await execAsync(`sudo cat "${configPath}"`);
+        content = stdout;
+      } else {
+        content = await fs.readFile(configPath, 'utf-8');
+      }
       
       // Extract server_name
       const serverNameMatch = content.match(/server_name\s+([^;]+);/);

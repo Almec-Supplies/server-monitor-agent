@@ -50,6 +50,10 @@ $USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/log/*
 $USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*/*
 $USER ALL=(ALL) NOPASSWD: /usr/bin/grep * /var/log/auth.log
 
+# Plesk nginx config access
+$USER ALL=(ALL) NOPASSWD: /usr/bin/cat /var/www/vhosts/system/*/conf/nginx.conf
+$USER ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/nginx/plesk.conf.d/vhosts/*.conf
+
 # File testing
 $USER ALL=(ALL) NOPASSWD: /usr/bin/test
 
