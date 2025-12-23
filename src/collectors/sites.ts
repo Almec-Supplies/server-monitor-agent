@@ -61,10 +61,15 @@ export class SitesCollector {
         return sites; // Nginx not installed
       }
 
-      // Get enabled sites
+      // Standard nginx paths
       const enabledSitesPath = '/etc/nginx/sites-enabled';
       const availableSitesPath = '/etc/nginx/sites-available';
+      
+      // Plesk nginx paths
+      const pleskVhostsPath = '/var/www/vhosts/system';
+      const pleskConfPath = '/etc/nginx/plesk.conf.d';
 
+      // Get standard enabled sites
       try {
         const { stdout: enabledFiles } = await execAsync(`ls ${enabledSitesPath} 2>/dev/null || echo ""`);
         const enabledSiteFiles = enabledFiles.trim().split('\n').filter(f => f && f !== 'default');
@@ -80,7 +85,7 @@ export class SitesCollector {
         console.error('Error reading enabled sites:', err);
       }
 
-      // Also check available but not enabled sites
+      // Check standard available but not enabled sites
       try {
         const { stdout: availableFiles } = await execAsync(`ls ${availableSitesPath} 2>/dev/null || echo ""`);
         const availableSiteFiles = availableFiles.trim().split('\n').filter(f => f && f !== 'default');
@@ -98,6 +103,36 @@ export class SitesCollector {
         }
       } catch (err) {
         console.error('Error reading available sites:', err);
+      }
+
+      // Check for Plesk vhosts configurations
+      try {
+        const { stdout: pleskDomains } = await execAsync(`find ${pleskVhostsPath} -maxdepth 2 -name "nginx.conf" 2>/dev/null || echo ""`);
+        const pleskConfigFiles = pleskDomains.trim().split('\n').filter(f => f);
+
+        for (const configPath of pleskConfigFiles) {
+          const siteInfo = await this.parseNginxConfig(configPath, true);
+          if (siteInfo) {
+            sites.push({ ...siteInfo, configPath: configPath + ' (Plesk)' });
+          }
+        }
+      } catch (err) {
+        console.error('Error reading Plesk vhosts:', err);
+      }
+
+      // Check Plesk conf.d directory
+      try {
+        const { stdout: pleskConfFiles } = await execAsync(`ls ${pleskConfPath}/vhosts/*.conf 2>/dev/null || echo ""`);
+        const pleskFiles = pleskConfFiles.trim().split('\n').filter(f => f);
+
+        for (const configPath of pleskFiles) {
+          const siteInfo = await this.parseNginxConfig(configPath, true);
+          if (siteInfo) {
+            sites.push({ ...siteInfo, configPath: configPath + ' (Plesk)' });
+          }
+        }
+      } catch (err) {
+        console.error('Error reading Plesk conf.d:', err);
       }
     } catch (error) {
       console.error('Error getting nginx sites:', error);

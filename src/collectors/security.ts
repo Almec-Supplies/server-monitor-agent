@@ -176,44 +176,72 @@ export class SecurityCollector {
       const isActive = stdout.toLowerCase().includes('status: active');
       const rules = stdout.split('\n').filter(line => line.match(/\d+\/(tcp|udp)/)).length;
 
-      return {
-        type: 'firewall_status',
-        severity: !isActive ? 'warning' : 'info',
-        description: isActive ? `Firewall active with ${rules} rules` : 'Firewall is inactive',
-        details: {
-          active: isActive,
-          rules: rules,
-          output: stdout.split('\n').slice(0, 10), // First 10 lines
-        },
-      };
-    } catch (error) {
-      // UFW might not be available
-      try {
-        // Try iptables as fallback
-        const { stdout } = await execAsync(`sudo iptables -L -n 2>/dev/null | wc -l`);
-        const ruleCount = parseInt(stdout.trim());
-        
+      if (isActive) {
         return {
           type: 'firewall_status',
-          severity: ruleCount < 5 ? 'warning' : 'info',
-          description: `iptables has ${ruleCount} rules`,
+          severity: 'info',
+          description: `UFW firewall active with ${rules} rules`,
           details: {
-            active: ruleCount > 0,
-            rules: ruleCount,
-            tool: 'iptables',
-          },
-        };
-      } catch {
-        return {
-          type: 'firewall_status',
-          severity: 'warning',
-          description: 'Unable to determine firewall status',
-          details: {
-            active: false,
-            error: 'No firewall detected',
+            active: true,
+            rules: rules,
+            tool: 'ufw',
+            output: stdout.split('\n').slice(0, 10),
           },
         };
       }
+    } catch (error) {
+      // UFW might not be available, continue to other checks
+    }
+
+    // Check Plesk firewall
+    try {
+      const pleskFirewall = await execAsync(`which firewall 2>/dev/null || echo ""`);
+      if (pleskFirewall.stdout.trim()) {
+        const { stdout } = await execAsync(`sudo firewall --status 2>/dev/null || echo "inactive"`);
+        const isActive = !stdout.toLowerCase().includes('inactive') && !stdout.toLowerCase().includes('disabled');
+        
+        if (isActive) {
+          return {
+            type: 'firewall_status',
+            severity: 'info',
+            description: 'Plesk Firewall is active',
+            details: {
+              active: true,
+              tool: 'plesk-firewall',
+              output: stdout.split('\n').slice(0, 10),
+            },
+          };
+        }
+      }
+    } catch (error) {
+      // Plesk firewall not available
+    }
+
+    // Try iptables as fallback
+    try {
+      const { stdout } = await execAsync(`sudo iptables -L -n 2>/dev/null | wc -l`);
+      const ruleCount = parseInt(stdout.trim());
+      
+      return {
+        type: 'firewall_status',
+        severity: ruleCount < 5 ? 'warning' : 'info',
+        description: `iptables has ${ruleCount} rules`,
+        details: {
+          active: ruleCount > 0,
+          rules: ruleCount,
+          tool: 'iptables',
+        },
+      };
+    } catch {
+      return {
+        type: 'firewall_status',
+        severity: 'warning',
+        description: 'Unable to determine firewall status',
+        details: {
+          active: false,
+          error: 'No firewall detected',
+        },
+      };
     }
   }
 

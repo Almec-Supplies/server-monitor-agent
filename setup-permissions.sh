@@ -44,7 +44,10 @@ sudo tee $SUDOERS_FILE > /dev/null <<EOF
 
 # Log file access
 $USER ALL=(ALL) NOPASSWD: /usr/bin/find /var/log/nginx -name *.error.log -type f
+$USER ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -name error_log -type f
+$USER ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -maxdepth 2 -name nginx.conf
 $USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/log/*
+$USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*/*
 $USER ALL=(ALL) NOPASSWD: /usr/bin/grep * /var/log/auth.log
 
 # File testing
@@ -53,6 +56,7 @@ $USER ALL=(ALL) NOPASSWD: /usr/bin/test
 # Firewall status
 $USER ALL=(ALL) NOPASSWD: /usr/sbin/ufw status
 $USER ALL=(ALL) NOPASSWD: /usr/sbin/iptables -L -n
+$USER ALL=(ALL) NOPASSWD: /usr/sbin/firewall --status
 
 # Fail2ban monitoring
 $USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active fail2ban

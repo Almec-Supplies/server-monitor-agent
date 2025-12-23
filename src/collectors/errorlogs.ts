@@ -34,24 +34,36 @@ export class ErrorLogsCollector {
 
   private async checkNginxErrors(): Promise<ErrorLogReport | null> {
     try {
-      // Find all nginx error log files (including virtual host logs)
-      const { stdout: logFiles } = await execAsync(
-        `sudo find /var/log/nginx -name "*.error.log" -type f 2>/dev/null || echo ""`
-      );
+      // Find all nginx error log files (standard + Plesk locations)
+      const logSearchPaths = [
+        'sudo find /var/log/nginx -name "*.error.log" -type f 2>/dev/null',
+        'sudo find /var/www/vhosts/system -name "error_log" -type f 2>/dev/null',
+      ];
 
-      if (!logFiles.trim()) {
+      const allLogFiles: string[] = [];
+      
+      for (const searchCmd of logSearchPaths) {
+        try {
+          const { stdout } = await execAsync(searchCmd);
+          if (stdout.trim()) {
+            allLogFiles.push(...stdout.trim().split('\n').filter(f => f.length > 0));
+          }
+        } catch (err) {
+          // Path might not exist, continue
+        }
+      }
+
+      if (allLogFiles.length === 0) {
         return null;
       }
 
-      const files = logFiles.trim().split('\n').filter(f => f.length > 0);
-      
       let totalErrorCount = 0;
       let totalWarningCount = 0;
       let totalCriticalCount = 0;
       const allRecentErrors: Array<{ timestamp: string; level: string; message: string }> = [];
 
       // Process each error log file
-      for (const errorLogPath of files) {
+      for (const errorLogPath of allLogFiles) {
         try {
           // Count errors by severity (last 500 lines per file)
           const { stdout } = await execAsync(
