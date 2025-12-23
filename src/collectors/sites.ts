@@ -231,44 +231,44 @@ export class SitesCollector {
     // Check SSL certificate expiry if SSL
     if (site.isSsl && site.sslCertPath) {
       try {
-        // For Plesk certs, read directly from disk (much faster and more reliable)
-        if (site.sslCertPath.startsWith('/opt/psa/var/certificates/')) {
-          const certInfo = await this.getPleskSSLCertInfo(site.sslCertPath);
-          
-          // If disk-based check failed or certificate is expired, fallback to network check
-          if (!certInfo || (certInfo.daysRemaining !== undefined && certInfo.daysRemaining < 0)) {
-            if (!certInfo) {
-              console.log(`⚠️  Disk-based SSL cert check failed for ${site.domain}, trying network check...`);
-            } else {
-              console.log(`⚠️  Disk-based cert for ${site.domain} is expired (${certInfo.daysRemaining} days), trying network check...`);
-            }
-            
-            const networkCertInfo = await this.getSSLCertInfo(site.domain, site.port);
-            if (networkCertInfo) {
-              result.sslCertExpiry = networkCertInfo.expiry;
-              result.sslDaysRemaining = networkCertInfo.daysRemaining;
-              console.log(`✓ Network check found valid cert for ${site.domain}: ${networkCertInfo.daysRemaining} days remaining`);
-            } else {
-              // Use the disk-based info even if expired (better than nothing)
-              if (certInfo) {
-                result.sslCertExpiry = certInfo.expiry;
-                result.sslDaysRemaining = certInfo.daysRemaining;
-              }
-              console.log(`⚠️  Both disk and network SSL cert checks failed for ${site.domain}:${site.port}`);
-            }
+        // Try disk-based check first (faster and more reliable)
+        const certInfo = await this.getDiskSSLCertInfo(site.sslCertPath);
+        
+        // If disk-based check failed or certificate is expired, fallback to network check
+        if (!certInfo || (certInfo.daysRemaining !== undefined && certInfo.daysRemaining < 0)) {
+          if (!certInfo) {
+            console.log(`⚠️  Disk-based SSL cert check failed for ${site.domain}, trying network check...`);
           } else {
-            result.sslCertExpiry = certInfo.expiry;
-            result.sslDaysRemaining = certInfo.daysRemaining;
+            console.log(`⚠️  Disk-based cert for ${site.domain} is expired (${certInfo.daysRemaining} days), trying network check...`);
+          }
+          
+          const networkCertInfo = await this.getSSLCertInfo(site.domain, site.port);
+          if (networkCertInfo) {
+            result.sslCertExpiry = networkCertInfo.expiry;
+            result.sslDaysRemaining = networkCertInfo.daysRemaining;
+            console.log(`✓ Network check found valid cert for ${site.domain}: ${networkCertInfo.daysRemaining} days remaining`);
+          } else {
+            // Use the disk-based info even if expired (better than nothing)
+            if (certInfo) {
+              result.sslCertExpiry = certInfo.expiry;
+              result.sslDaysRemaining = certInfo.daysRemaining;
+            }
+            console.log(`⚠️  Both disk and network SSL cert checks failed for ${site.domain}:${site.port}`);
           }
         } else {
-          // For non-Plesk certs, use network check
-          const certInfo = await this.getSSLCertInfo(site.domain, site.port);
-          if (certInfo) {
-            result.sslCertExpiry = certInfo.expiry;
-            result.sslDaysRemaining = certInfo.daysRemaining;
-          } else {
-            console.log(`⚠️  SSL cert check failed for ${site.domain}:${site.port}`);
-          }
+          result.sslCertExpiry = certInfo.expiry;
+          result.sslDaysRemaining = certInfo.daysRemaining;
+        }
+      } catch (err) {
+        console.error(`❌ Error getting SSL cert for ${site.domain}:`, err);
+      }
+    } else if (site.isSsl && !site.sslCertPath) {
+      // No cert path found in config, try network check only
+      try {
+        const certInfo = await this.getSSLCertInfo(site.domain, site.port);
+        if (certInfo) {
+          result.sslCertExpiry = certInfo.expiry;
+          result.sslDaysRemaining = certInfo.daysRemaining;
         }
       } catch (err) {
         console.error(`❌ Error getting SSL cert for ${site.domain}:`, err);
@@ -292,10 +292,20 @@ export class SitesCollector {
     return result;
   }
 
-  private async getPleskSSLCertInfo(certPath: string): Promise<{ expiry: Date; daysRemaining: number } | null> {
+  private async getDiskSSLCertInfo(certPath: string): Promise<{ expiry: Date; daysRemaining: number } | null> {
     try {
       // Use openssl to read certificate expiry date from file
-      const { stdout } = await execAsync(`sudo openssl x509 -noout -enddate -in "${certPath}" 2>/dev/null`);
+      // Try with sudo first (for Plesk and root-owned certs), fallback to direct read
+      let stdout: string;
+      try {
+        const result = await execAsync(`sudo openssl x509 -noout -enddate -in "${certPath}" 2>/dev/null`);
+        stdout = result.stdout;
+      } catch {
+        // If sudo fails, try direct read (for user-readable certs)
+        const result = await execAsync(`openssl x509 -noout -enddate -in "${certPath}" 2>/dev/null`);
+        stdout = result.stdout;
+      }
+      
       const endDateMatch = stdout.match(/notAfter=(.+)/);
       
       if (endDateMatch) {
