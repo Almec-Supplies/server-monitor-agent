@@ -54,10 +54,9 @@ export class SitesCollector {
     const sites: { domain: string; configPath: string; isEnabled: boolean; port: number; isSsl: boolean; sslCertPath?: string }[] = [];
 
     try {
-      // Check if nginx is installed
-      try {
-        await execAsync('which nginx');
-      } catch {
+      // Check if nginx config directories exist (more reliable than checking nginx binary)
+      const nginxConfigExists = await this.pathExists('/etc/nginx');
+      if (!nginxConfigExists) {
         return sites; // Nginx not installed
       }
 
@@ -324,5 +323,14 @@ export class SitesCollector {
         resolve({ isReachable: false });
       });
     });
+  }
+
+  private async pathExists(path: string): Promise<boolean> {
+    try {
+      await fs.access(path);
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
