@@ -321,6 +321,10 @@ export class SecurityCollector {
         `sudo systemctl is-active fail2ban 2>/dev/null || echo "inactive"`
       );
 
+      console.log('🔍 Fail2ban raw output:', JSON.stringify(statusOutput));
+      console.log('🔍 Fail2ban trimmed:', JSON.stringify(statusOutput.trim()));
+      console.log('🔍 Fail2ban length:', statusOutput.trim().length);
+
       const isActive = statusOutput.trim() === 'active';
 
       if (!isActive) {
