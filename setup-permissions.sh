@@ -49,25 +49,29 @@ $USER ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -maxdepth 2 -name
 $USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/log/*
 $USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*/*
 $USER ALL=(ALL) NOPASSWD: /usr/bin/grep * /var/log/auth.log
+$USER ALL=(ALL) NOPASSWD: /usr/bin/grep * /etc/nginx/sites-enabled/*
 
 # Plesk nginx config access
 $USER ALL=(ALL) NOPASSWD: /usr/bin/cat /var/www/vhosts/system/*/conf/nginx.conf
 $USER ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/nginx/plesk.conf.d/vhosts/*.conf
 
-# Plesk SSL certificate reading
-$USER ALL=(ALL) NOPASSWD: /usr/bin/openssl x509 -noout -enddate -in /opt/psa/var/certificates/*
+# SSL certificate reading (Plesk and standard locations)
+$USER ALL=(ALL) NOPASSWD: /usr/bin/openssl x509 -noout -enddate -in *
 
 # File testing
 $USER ALL=(ALL) NOPASSWD: /usr/bin/test
 
-# Firewall status
+# Firewall and service status
 $USER ALL=(ALL) NOPASSWD: /usr/sbin/ufw status
 $USER ALL=(ALL) NOPASSWD: /usr/sbin/iptables -L -n
 $USER ALL=(ALL) NOPASSWD: /usr/sbin/firewall --status
+$USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active *
 
 # Fail2ban monitoring
-$USER ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active fail2ban
 $USER ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client *
+
+# Package management (read-only)
+$USER ALL=(ALL) NOPASSWD: /usr/bin/apt list*
 
 # User directory checks
 $USER ALL=(ALL) NOPASSWD: /usr/bin/find /home -maxdepth 1 -type d -mtime -30 -printf *
