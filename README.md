@@ -50,18 +50,39 @@ sudo visudo -f /etc/sudoers.d/monitoring-agent
 Add the following lines (replace `username` with your actual username):
 ```
 # Monitoring Agent - Passwordless sudo for specific commands
+
+# Log file access
 username ALL=(ALL) NOPASSWD: /usr/bin/find /var/log/nginx -name *.error.log -type f
 username ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -name error_log -type f
 username ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -maxdepth 2 -name nginx.conf
 username ALL=(ALL) NOPASSWD: /usr/bin/tail /var/log/*
-username ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*/*
-username ALL=(ALL) NOPASSWD: /usr/bin/test
+username ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*
 username ALL=(ALL) NOPASSWD: /usr/bin/grep * /var/log/auth.log
+username ALL=(ALL) NOPASSWD: /usr/bin/grep * /etc/nginx/sites-enabled/*
+
+# Plesk nginx config access
+username ALL=(ALL) NOPASSWD: /usr/bin/cat /var/www/vhosts/system/*/conf/nginx.conf
+username ALL=(ALL) NOPASSWD: /usr/bin/cat /etc/nginx/plesk.conf.d/vhosts/*.conf
+
+# SSL certificate reading (Plesk and standard locations)
+username ALL=(ALL) NOPASSWD: /usr/bin/openssl x509 -noout -enddate -in *
+
+# File testing
+username ALL=(ALL) NOPASSWD: /usr/bin/test
+
+# Firewall and service status
 username ALL=(ALL) NOPASSWD: /usr/sbin/ufw status
 username ALL=(ALL) NOPASSWD: /usr/sbin/iptables -L -n
 username ALL=(ALL) NOPASSWD: /usr/sbin/firewall --status
-username ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active fail2ban
+username ALL=(ALL) NOPASSWD: /usr/bin/systemctl is-active *
+
+# Fail2ban monitoring
 username ALL=(ALL) NOPASSWD: /usr/bin/fail2ban-client *
+
+# Package management (read-only)
+username ALL=(ALL) NOPASSWD: /usr/bin/apt list*
+
+# User directory checks
 username ALL=(ALL) NOPASSWD: /usr/bin/find /home -maxdepth 1 -type d -mtime -30 -printf *
 ```
 
