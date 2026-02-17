@@ -45,10 +45,13 @@ sudo tee $SUDOERS_FILE > /dev/null <<EOF
 # Log file access
 $USER ALL=(ALL) NOPASSWD: /usr/bin/find /var/log/nginx -name *.error.log -type f
 $USER ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -name error_log -type f
-$USER ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -maxdepth 2 -name nginx.conf
+$USER ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -maxdepth 3 -name nginx.conf
 $USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/log/*
+$USER ALL=(ALL) NOPASSWD: /usr/bin/tail -[0-9]* /var/log/*
 $USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*/*/error_log
+$USER ALL=(ALL) NOPASSWD: /usr/bin/tail -[0-9]* /var/www/vhosts/system/*/*/error_log
 $USER ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*/*/*
+$USER ALL=(ALL) NOPASSWD: /usr/bin/tail -[0-9]* /var/www/vhosts/system/*/*/*
 $USER ALL=(ALL) NOPASSWD: /usr/bin/grep * /var/log/auth.log
 $USER ALL=(ALL) NOPASSWD: /usr/bin/grep * /etc/nginx/sites-enabled/*
 
