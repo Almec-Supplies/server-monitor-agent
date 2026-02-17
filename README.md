@@ -56,7 +56,8 @@ username ALL=(ALL) NOPASSWD: /usr/bin/find /var/log/nginx -name *.error.log -typ
 username ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -name error_log -type f
 username ALL=(ALL) NOPASSWD: /usr/bin/find /var/www/vhosts/system -maxdepth 2 -name nginx.conf
 username ALL=(ALL) NOPASSWD: /usr/bin/tail /var/log/*
-username ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*
+username ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*/*/error_log
+username ALL=(ALL) NOPASSWD: /usr/bin/tail /var/www/vhosts/system/*/*/*
 username ALL=(ALL) NOPASSWD: /usr/bin/grep * /var/log/auth.log
 username ALL=(ALL) NOPASSWD: /usr/bin/grep * /etc/nginx/sites-enabled/*
 
