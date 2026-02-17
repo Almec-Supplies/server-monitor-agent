@@ -113,7 +113,7 @@ export class SitesCollector {
 
       // Check for Plesk vhosts configurations
       try {
-        const { stdout: pleskDomains } = await execAsync(`find ${pleskVhostsPath} -maxdepth 2 -name "nginx.conf" 2>/dev/null || echo ""`);
+        const { stdout: pleskDomains } = await execAsync(`sudo find ${pleskVhostsPath} -maxdepth 3 -name "nginx.conf" 2>/dev/null || echo ""`);
         const pleskConfigFiles = pleskDomains.trim().split('\n').filter(f => f);
 
         for (const configPath of pleskConfigFiles) {
