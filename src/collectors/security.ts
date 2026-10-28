@@ -1,6 +1,6 @@
 import { exec } from 'child_process';
+import { existsSync } from 'fs';
 import { promisify } from 'util';
-import fs from 'fs/promises';
 
 const execAsync = promisify(exec);
 
@@ -48,9 +48,9 @@ export class SecurityCollector {
 
   private async checkFailedSSHLogins(): Promise<SecurityAudit | null> {
     try {
-      // Check for failed SSH login attempts in the last 24 hours
+      // Check for failed SSH login attempts in the last 24 hours (systemd journal)
       const { stdout } = await execAsync(
-        `sudo grep "Failed password" /var/log/auth.log 2>/dev/null | tail -50 || echo ""`
+        `journalctl _COMM=sshd --no-pager --since "24 hours ago" 2>/dev/null | grep "Failed password" | tail -50 || echo ""`
       );
 
       const failedAttempts = stdout.trim().split('\n').filter(line => line.length > 0);
@@ -193,30 +193,6 @@ export class SecurityCollector {
       // UFW might not be available, continue to other checks
     }
 
-    // Check Plesk firewall
-    try {
-      const pleskFirewall = await execAsync(`which firewall 2>/dev/null || echo ""`);
-      if (pleskFirewall.stdout.trim()) {
-        const { stdout } = await execAsync(`sudo firewall --status 2>/dev/null || echo "inactive"`);
-        const isActive = !stdout.toLowerCase().includes('inactive') && !stdout.toLowerCase().includes('disabled');
-        
-        if (isActive) {
-          return {
-            type: 'firewall_status',
-            severity: 'info',
-            description: 'Plesk Firewall is active',
-            details: {
-              active: true,
-              tool: 'plesk-firewall',
-              output: stdout.split('\n').slice(0, 10),
-            },
-          };
-        }
-      }
-    } catch (error) {
-      // Plesk firewall not available
-    }
-
     // Try iptables as fallback
     try {
       const { stdout } = await execAsync(`sudo iptables -L -n 2>/dev/null | wc -l`);
@@ -249,7 +225,7 @@ export class SecurityCollector {
     try {
       // Find nginx document roots
       const { stdout: nginxRoots } = await execAsync(
-        `sudo grep "^\\s*root " /etc/nginx/sites-enabled/* 2>/dev/null | awk '{print $NF}' | tr -d ';' | sort -u || echo ""`
+        `grep "^\\s*root " /etc/nginx/sites-enabled/* 2>/dev/null | awk '{print $NF}' | tr -d ';' | sort -u || echo ""`
       );
 
       if (!nginxRoots.trim()) {
@@ -272,15 +248,8 @@ export class SecurityCollector {
 
       for (const root of roots) {
         for (const pattern of sensitivePatterns) {
-          try {
-            const { stdout } = await execAsync(
-              `sudo test -e ${root}/${pattern} && echo "found" || echo ""`
-            );
-            if (stdout.includes('found')) {
-              foundFiles.push({ file: pattern, path: `${root}/${pattern}` });
-            }
-          } catch {
-            continue;
+          if (existsSync(`${root}/${pattern}`)) {
+            foundFiles.push({ file: pattern, path: `${root}/${pattern}` });
           }
         }
       }
@@ -318,7 +287,7 @@ export class SecurityCollector {
     try {
       // Check if fail2ban is installed and running
       const { stdout: statusOutput } = await execAsync(
-        `sudo systemctl is-active fail2ban 2>/dev/null || echo "inactive"`
+        `systemctl is-active fail2ban 2>/dev/null || echo "inactive"`
       );
 
       const isActive = statusOutput.trim() === 'active';

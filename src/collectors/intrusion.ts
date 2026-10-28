@@ -47,7 +47,7 @@ export class IntrusionCollector {
       
       // Get recently created users (last 30 days)
       const { stdout: recentStdout } = await execAsync(
-        `sudo find /home -maxdepth 1 -type d -mtime -30 -printf "%f\\n" 2>/dev/null || echo ""`
+        `find /home -maxdepth 1 -type d -mtime -30 -printf "%f\\n" 2>/dev/null || echo ""`
       );
 
       const recentUsers = recentStdout.trim().split('\n').filter(u => u && u !== 'home');

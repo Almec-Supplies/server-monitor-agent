@@ -1,6 +1,6 @@
 import { exec } from 'child_process';
+import { existsSync } from 'fs';
 import { promisify } from 'util';
-import fs from 'fs/promises';
 
 const execAsync = promisify(exec);
 
@@ -36,9 +36,11 @@ export class ErrorLogsCollector {
     try {
       // Find all nginx error log files (standard + Plesk locations)
       const logSearchPaths = [
-        'sudo find /var/log/nginx -name "*.error.log" -type f 2>/dev/null',
-        'sudo find /var/www/vhosts/system -name "error_log" -type f 2>/dev/null',
+        'find /var/log/nginx -name "*.error.log" -type f 2>/dev/null',
       ];
+      if (existsSync('/var/www/vhosts/system')) {
+        logSearchPaths.push('sudo find /var/www/vhosts/system -name "error_log" -type f 2>/dev/null');
+      }
 
       const allLogFiles: string[] = [];
       
@@ -67,7 +69,7 @@ export class ErrorLogsCollector {
         try {
           // Count errors by severity (last 500 lines per file)
           const { stdout } = await execAsync(
-            `sudo tail -500 ${errorLogPath} 2>/dev/null || echo ""`
+            `tail -500 ${errorLogPath} 2>/dev/null || echo ""`
           );
 
           if (!stdout.trim()) {
@@ -135,16 +137,9 @@ export class ErrorLogsCollector {
 
       // Find first existing log
       for (const path of phpLogPaths) {
-        try {
-          const { stdout } = await execAsync(
-            `sudo test -f ${path} && echo "exists" || echo "missing"`
-          );
-          if (stdout.includes('exists')) {
-            logPath = path;
-            break;
-          }
-        } catch {
-          continue;
+        if (existsSync(path)) {
+          logPath = path;
+          break;
         }
       }
 
